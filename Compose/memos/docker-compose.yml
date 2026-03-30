@@ -1,0 +1,19 @@
+services:
+  memos:
+    image: neosmemo/memos:stable
+    container_name: memos
+    restart: unless-stopped
+    environment:
+      MEMOS_MODE: prod
+      MEMOS_PORT: 5230
+    ports:
+      - "5230:5230"
+    volumes:
+      - .data:/var/opt/memos
+    networks:
+      vlan23:
+        ipv4_address: 172.20.23.66  # pick a free IP in the subnet
+
+networks:
+  vlan23:
+    external: true
