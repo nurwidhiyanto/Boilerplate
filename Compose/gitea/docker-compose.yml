@@ -4,17 +4,17 @@ services:
     image: postgres:15
     restart: always
     environment:
-      POSTGRES_DB: gitea
-      POSTGRES_USER: gitea
-      POSTGRES_PASSWORD: supersecurepassword
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - /srv/dev-disk-by-uuid-68dddd05-1261-4cce-b5c1-a230efcf2c9e/System/appData/gitea/postgres:/var/lib/postgresql/data
+      - ${GITEA_BASE_PATH}/postgres:/var/lib/postgresql/data
     networks:
-      internal: {}  # keep static IP here if you want
+      internal: {}
 
   gitea:
     container_name: gitea
-    image: gitea/gitea:latest
+    image: gitea/gitea:main-nightly
     restart: always
     depends_on:
       - db
@@ -23,24 +23,43 @@ services:
       USER_GID: 1000
       DB_TYPE: postgres
       DB_HOST: gitea_db:5432
-      DB_NAME: gitea
-      DB_USER: gitea
-      DB_PASSWD: supersecurepassword
-      GITEA__server__DOMAIN: gitea.lan
-      GITEA__server__ROOT_URL: http://gitea.lan
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWD: ${POSTGRES_PASSWORD}
+      GITEA__server__DOMAIN: ${GITEA_DOMAIN}
+      GITEA__server__ROOT_URL: ${GITEA_ROOT_URL}
       GITEA__server__HTTP_PORT: 80
-      GITEA__server__SSH_DOMAIN: gitea.lan
+      GITEA__server__SSH_DOMAIN: ${GITEA_DOMAIN}
       GITEA__server__SSH_PORT: 22
-      GITEA__webhook__ALLOWED_HOST_LIST: 172.20.20.11
+      GITEA__webhook__ALLOWED_HOST_LIST: ${GITEA_WEBHOOK_ALLOWED_HOSTS}
     volumes:
-      - /srv/dev-disk-by-uuid-68dddd05-1261-4cce-b5c1-a230efcf2c9e/System/appData/gitea/data:/data
+      - ${GITEA_BASE_PATH}/data:/data
     networks:
       vlan23:
-        ipv4_address: 172.20.23.127  # keep this static
-      internal: {}  # Docker assigns IP automatically
+        ipv4_address: ${GITEA_IP}
+      internal: {}
     ports:
       - "8080:80"
       - "2222:22"
+
+  runner:
+    container_name: gitea_runner
+    image: docker.io/gitea/act_runner:nightly
+    restart: always
+    depends_on:
+      - gitea
+    environment:
+      CONFIG_FILE: /config.yaml
+      GITEA_INSTANCE_URL: ${GITEA_INSTANCE_URL}
+      GITEA_RUNNER_REGISTRATION_TOKEN: ${GITEA_RUNNER_REGISTRATION_TOKEN}
+      GITEA_RUNNER_NAME: ${GITEA_RUNNER_NAME}
+      # GITEA_RUNNER_LABELS: ${GITEA_RUNNER_LABELS}   # uncomment if you want to use it
+    volumes:
+      - ${GITEA_RUNNER_BASE_PATH}/config.yaml:/config.yaml
+      - ${GITEA_RUNNER_BASE_PATH}/data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      internal: {}
 
 networks:
   vlan23:
