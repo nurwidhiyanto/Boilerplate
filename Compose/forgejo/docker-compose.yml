@@ -4,13 +4,23 @@ services:
     image: postgres:15
     restart: always
     environment:
-      POSTGRES_DB: forgejo
-      POSTGRES_USER: forgejo
-      POSTGRES_PASSWORD: supersecurepassword
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - /srv/dev-disk-by-uuid-68dddd05-1261-4cce-b5c1-a230efcf2c9e/System/appData/forgejo/postgres:/var/lib/postgresql/data
+      - ${BASE_PATH}/postgres:/var/lib/postgresql/data
     networks:
-      internal: {}  # keep static IP here if you want
+      internal: {}
+
+  forgejoCertbot:
+    container_name: forgejoCertbot
+    image: certbot/dns-cloudflare
+    volumes:
+      - ${BASE_PATH}/certbot/conf:/etc/letsencrypt
+      - ${BASE_PATH}/certbot/cloudflare.ini:/cloudflare.ini:ro
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      internal: {}
 
   forgejo:
     container_name: forgejo
@@ -23,22 +33,51 @@ services:
       USER_GID: 1000
       DB_TYPE: postgres
       DB_HOST: forgejo_db:5432
-      DB_NAME: forgejo
-      DB_USER: forgejo
-      DB_PASSWD: supersecurepassword
-      FORGEJO__server__DOMAIN: forgejo.lan
-      FORGEJO__server__ROOT_URL: http://forgejo.lan
-      FORGEJO__server__SSH_DOMAIN: forgejo.lan
-      FORGEJO__webhook__ALLOWED_HOST_LIST: 172.20.20.11
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWD: ${DB_PASSWORD}
+      # --- SSL & DOMAIN SETTINGS ---
+      FORGEJO__server__PROTOCOL: https
+      FORGEJO__server__HTTP_PORT: 443
+      FORGEJO__server__CERT_FILE: /etc/letsencrypt/live/${FORGEJO_DOMAIN}/fullchain.pem
+      FORGEJO__server__KEY_FILE: /etc/letsencrypt/live/${FORGEJO_DOMAIN}/privkey.pem
+      FORGEJO__server__DOMAIN: ${FORGEJO_DOMAIN}
+      FORGEJO__server__ROOT_URL: https://${FORGEJO_DOMAIN}
+      FORGEJO__server__SSH_DOMAIN: ${FORGEJO_DOMAIN}
+      FORGEJO__server__SSH_PORT: 22
+      FORGEJO__webhook__ALLOWED_HOST_LIST: ${ALLOWED_HOST}
     volumes:
-      - /srv/dev-disk-by-uuid-68dddd05-1261-4cce-b5c1-a230efcf2c9e/System/appData/forgejo/data:/data
+      - ${BASE_PATH}/data:/data
+      - ${BASE_PATH}/certbot/conf:/etc/letsencrypt:ro
     networks:
       vlan23:
-        ipv4_address: 172.20.23.80  # keep this static
-      internal: {}  # Docker assigns IP automatically
+        ipv4_address: ${VLAN23_IP}
+      internal:
+        aliases:
+          - ${FORGEJO_DOMAIN}
     ports:
-      - "3000:3000"
-      - "222:2222"
+      - "3443:443"
+      - "222:22"
+
+  forgejo_runner:
+    container_name: forgejo_runner
+    image: code.forgejo.org/forgejo/runner:12
+    restart: always
+    user: root
+    command: forgejo-runner daemon -c /config.yaml
+    working_dir: /data
+    depends_on:
+      - forgejo
+    environment:
+      # These are secondary to the config file but good to keep
+      FORGEJO_INSTANCE_URL: "https://${FORGEJO_DOMAIN}"
+      FORGEJO_RUNNER_REGISTRATION_TOKEN: ${FORGEJO_RUNNER_TOKEN}
+    volumes:
+      - ${BASE_PATH}/runner/data:/data
+      - ${BASE_PATH}/runner/config.yaml:/config.yaml
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      internal: {}
 
 networks:
   vlan23:
